@@ -1,0 +1,83 @@
+{
+    "DEVICE_METADATA": {
+        "localhost": {
+            "bgp_asn": "65100",
+            "hostname": "sonic",
+            "hwsku": "Force10-S6000",
+            "mac": "52:54:00:12:34:01",
+            "platform": "x86_64-kvm_x86_64-r0",
+            "type": "LeafRouter"
+        }
+    },
+    "PORT": {
+        "Ethernet0": {
+            "lanes": "25,26,27,28",
+            "alias": "fortyGigE0/0",
+            "index": "0",
+            "speed": "40000",
+            "admin_status": "up",
+            "mtu": "9100"
+        },
+        "Ethernet4": {
+            "lanes": "29,30,31,32",
+            "alias": "fortyGigE0/4",
+            "index": "1",
+            "speed": "40000",
+            "admin_status": "up",
+            "mtu": "9100"
+        },
+        "Ethernet8": {
+            "lanes": "33,34,35,36",
+            "alias": "fortyGigE0/8",
+            "index": "2",
+            "speed": "40000",
+            "admin_status": "up",
+            "mtu": "9100"
+        },
+        "Ethernet12": {
+            "lanes": "37,38,39,40",
+            "alias": "fortyGigE0/8",
+            "index": "3",
+            "speed": "40000",
+            "admin_status": "up",
+            "mtu": "9100"
+        }
+    },
+    "LOOPBACK_INTERFACE": {
+        "Loopback0|10.1.0.1/32": {}
+    },
+    "VLAN": {
+        "Vlan1001": {
+            "members": [
+                "Ethernet0",
+                "Ethernet4"
+            ],
+            "vlanid": "1001"
+        },
+        "Vlan1002": {
+            "members": [
+                "Ethernet8",
+                "Ethernet12"
+            ],
+            "vlanid": "1002"
+        }
+    },
+    "VLAN_MEMBER": {
+        "Vlan1001|Ethernet0": {
+            "tagging_mode": "untagged"
+        },
+        "Vlan1001|Ethernet4": {
+            "tagging_mode": "untagged"
+        },
+        "Vlan1002|Ethernet8": {
+            "tagging_mode": "untagged"
+        },
+        "Vlan1002|Ethernet12": {
+            "tagging_mode": "tagged"
+        }
+    },
+    "VLAN_INTERFACE": {
+        "Vlan1001|192.168.1.1/24": {},
+        "Vlan1002|192.168.2.1/24": {}
+    }
+}
