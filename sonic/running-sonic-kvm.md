@@ -114,8 +114,6 @@ sonic-vs.img
 <source file='/var/lib/libvirt/images/20220519.5.sonic-vs.img'/>
 ```
 
-TODO: /var/lib/libvirt/images の配下に変更 
-
 ### 3. SONiC VM（仮想マシン）の起動とログイン
 
 #### VMの作成、起動
@@ -197,11 +195,11 @@ $ virsh console sonic
 
 スクリプトで起動可能なデモを通じた、設定方法や利用方法の解説メモ。（スクリプトや設定ファイルは `examples/` に保存）
 
-- [demo01: Layer 2/3 with VLAN (type=bridge)](TODO)
+- [demo01: Layer 2/3 with VLAN (type=bridge)](#demo01-layer-23-with-vlan-typebridge)
   - libvirt domain 設定（sonic.xml） で `<interface type='bridge'>` を利用したサンプル
   - ホスト側に bridge & veth pair を作成する必要があるため、netns をホストと見立てたテストには煩雑
   - 逆に、スイッチやルーターの仮想インスタンスを接続する場合には有用な方式
-- [demo02: Layer 2/3 with VLAN (type=network)](TODO)
+- [demo02: Layer 2/3 with VLAN (type=network)](#demo02-layer-23-with-vlan-typenetwork)
   - libvirt domain 設定（sonic.xml） で `<interface type='network'>` を利用したサンプル
   - ホスト側に bridge & veth pair 設定が不要なため、netns をホストと見立てたテストを簡単に実施可能
 
