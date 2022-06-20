@@ -33,6 +33,7 @@ time ./build-broadcom.sh
 ```
 
 参考：仮想マシンのリソース割り当てによるビルド時間比較
+> Host: Intel(R) Xeon(R) Gold 5218 CPU @ 2.30GHz, 2 sockets, 128GB RAM
 
 | SONIC_BUILD_JOBS |  8core, 10GB | 32core, 32GB |                      |
 |-----------------:|:------------:|-------------:|:---------------------|
