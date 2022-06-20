@@ -5,11 +5,12 @@ SONiC 関連情報のまとめ
 - Running SONiC
   - [on KVM (sonic-vs)](running-sonic-kvm.md)
   - [on Docker (docker-sonic-vs)](running-sonic-docker.md)
-  - [on Fixed Function ASIC](running-sonic.md)
-  - on Tofino ASIC (TBD: running-sonic-tofino.md)
+  - on Fixed Function ASIC(TBD: running-sonic.md) ⇒ 機材入手したら作成
+  - on Tofino ASIC (TBD: running-sonic-tofino.md) ⇒ 公開できない？
 - [SONiC Switch Image](sonic-image.md)
   - [Getting pre-built image](sonic-image.md#getting-pre-built-image)
-  - [Building SONiC image from source code](sonice-image.md)
+  - [Building SONiC image from source code](sonic-image.md)
+  - [SONiC Build Image Memo](sonic-buildimage-memo.md) ビルド関連情報のメモ集約
 - SONiC Internal
   - Architecture and modules
   - Source Code Analysis
@@ -20,14 +21,13 @@ SONiC 関連情報のまとめ
 
 ## TODO
 
-- Running SONiC on KVM
-- Building SONiC image
-- Running SONiC on KVM
-  - Build Docker image and upload to docker.io
-- 関連技術のメモ
-  - Linux ebtables
-  - Linux KVM/Virsh
-  - container lab
+### 開発効率化
+- Running SONiC on Docker： clab を利用した複数台Fabricのサンプル手順＆スクリプト作成
+- sonic-build: 各モジュールだけをビルドする方法（変更加えた部分だけをビルドし、現在の3時間⇒10分程度で開発を回せるように）
+- sonic-builder の `examples/sonic-cloud-init.yaml` で PLATFORM 毎のビルドスクリプトを生成しているが、機能の有効無効を含めてもっと便利な方法を検討
+  - e.g. 機能毎の yaml ファイルを用意しておく、Target名は `./build-sonic.sh <target>` のように引数で指定する、など。
+  - 但し、スクリプトを作り込むと sonic-buildimage が変わった時に追従できないため、手作業の方が分かりやすい場合は手作業のままにしておく。
+
 
 ### 追加したい機能（Contributionネタ）
 
@@ -46,7 +46,6 @@ SONiC設定サンプル集。仮想環境の場合は仮想マシンやコンテ
 - [demo02: Layer 2/3 with VLAN (type=network) on KVM](running-sonic-kvm.md#demo02-layer-23-with-vlan-typenetwork)
   - libvirt domain 設定（sonic.xml） で `<interface type='network'>` を利用したサンプル
   - ホスト側に bridge & veth pair 設定が不要なため、netns をホストと見立てたテストを簡単に実施可能
-
 
 
 ## References

@@ -1,0 +1,91 @@
+package_upgrade: true
+packages:
+ - make
+ - python3-pip
+ - ca-certificates
+ - curl
+ - gnupg
+ - lsb-release
+
+write_files:
+ - path: /tmp/docker.sh
+   permissions: 0744
+   owner: root
+   content: |
+     #!/usr/bin/env bash
+     echo \
+     "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu \
+     $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+ - path: /tmp/prep.sh
+   permissions: 0744
+   owner: root
+   content: |
+     #!/usr/bin/env bash
+     cd ~ubuntu
+     git clone https://github.com/Azure/sonic-buildimage.git
+     # uncomment below if you want to change the branch
+     # cd sonic-buildimage; git checkout 202106; cd ..
+     sed -i 's/SONIC_CONFIG_BUILD_JOBS = 1/SONIC_CONFIG_BUILD_JOBS = 4/g' sonic-buildimage/rules/config
+     sed -i 's/DEFAULT_PASSWORD = YourPaSsWoRd/DEFAULT_PASSWORD = admin/g' sonic-buildimage/rules/config
+     sed -i 's/# SHUTDOWN_BGP_ON_START = y/SHUTDOWN_BGP_ON_START = n/g' sonic-buildimage/rules/config
+     chown -R ubuntu:ubuntu sonic-buildimage
+ - path: /home/ubuntu/build-vs-docker.sh
+   permissions: 0744
+   owner: root
+   content: |
+     #!/usr/bin/env bash
+     cd sonic-buildimage
+     make init
+     make configure PLATFORM=vs
+     make SONIC_BUILD_JOBS=4 target/docker-sonic-vs.gz
+ - path: /home/ubuntu/build-vs-arm-docker.sh
+   permissions: 0744
+   owner: root
+   content: |
+     #!/usr/bin/env bash
+     cd sonic-buildimage
+     make init
+     make configure PLATFORM=vs PLATFORM_ARCH=arm64
+     make SONIC_BUILD_JOBS=4 target/docker-sonic-vs.gz
+ - path: /home/ubuntu/build-broadcom.sh
+   permissions: 0744
+   owner: root
+   content: |
+     #!/usr/bin/env bash
+     cd sonic-buildimage
+     make init
+     make configure PLATFORM=broadcom
+     make SONIC_BUILD_JOBS=4 target/sonic-broadcom.bin
+ - path: /home/ubuntu/build-broadcom-8.sh
+   permissions: 0744
+   owner: root
+   content: |
+     #!/usr/bin/env bash
+     cd sonic-buildimage
+     make init
+     make configure PLATFORM=broadcom
+     make SONIC_BUILD_JOBS=8 target/sonic-broadcom.bin
+ - path: /home/ubuntu/build-broadcom-16.sh
+   permissions: 0744
+   owner: root
+   content: |
+     #!/usr/bin/env bash
+     cd sonic-buildimage
+     make init
+     make configure PLATFORM=broadcom
+     make SONIC_BUILD_JOBS=16 target/sonic-broadcom.bin
+runcmd:
+ - curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+ - bash /tmp/docker.sh
+ - apt-get -y update
+ - apt-get -y install docker-ce docker-ce-cli containerd.io
+ - pip install j2cli
+ - git clone https://github.com/Azure/sonic-buildimage.git
+ - modprobe overlay
+ - bash /tmp/prep.sh
+ - chown ubuntu:ubuntu /home/ubuntu/build-vs-arm-docker.sh
+ - chown ubuntu:ubuntu /home/ubuntu/build-vs-docker.sh
+ - chown ubuntu:ubuntu /home/ubuntu/build-broadcom.sh
+ - chown ubuntu:ubuntu /home/ubuntu/build-broadcom-8.sh
+ - chown ubuntu:ubuntu /home/ubuntu/build-broadcom-16.sh
+ - usermod -a -G docker ubuntu
