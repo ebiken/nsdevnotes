@@ -2,6 +2,7 @@
 
 SONiC 関連情報のまとめ
 
+- [SONiCが動作する機材（Platform）](sonic-platform.md)
 - Running SONiC
   - [on KVM (sonic-vs)](running-sonic-kvm.md)
   - [on Docker (docker-sonic-vs)](running-sonic-docker.md)
