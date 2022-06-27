@@ -9,6 +9,7 @@ Table of Contents
 - [これは変更しておけ、というビルド設定](#これは変更しておけというビルド設定)
 - [ビルド高速化方法（試行錯誤中）](#ビルド高速化方法試行錯誤中)
   - [並列度アップ](#並列度アップ)
+  - [apt キャッシュサーバの活用 apt-cacher-ng](#apt-キャッシュサーバの活用-apt-cacher-ng)
   - [Avoid copying files of all targets, which are not asked to build (TBD)](#avoid-copying-files-of-all-targets-which-are-not-asked-to-build-tbd)
 - [ビルド設定：rules/config](#ビルド設定rulesconfig)
   - [有効にする機能の設定場所](#有効にする機能の設定場所)
@@ -68,6 +69,12 @@ NUMA node0 CPU(s):               0-7
 ubuntu@sonic-builder:~/sonic-buildimage$ nproc
 8
 ```
+
+### apt キャッシュサーバの活用 apt-cacher-ng
+
+（APRESIA 桑田さんからの情報）
+
+SONiCビルド時に、何度もapt installが発生するので、apt-cacher-ng（aptのキャッシュサーバ）を立てて、ビルドしていました。ただ、SONiCのビルドスクリプトが改善された覚えがありますので、apt キャッシュサーバを立てても、今ではビルド時間の短縮の効果は小さいかもしれません。
 
 ### Avoid copying files of all targets, which are not asked to build (TBD)
 
