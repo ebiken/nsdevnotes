@@ -9,6 +9,7 @@ Table of Contents
 - [これは変更しておけ、というビルド設定](#これは変更しておけというビルド設定)
 - [ビルド高速化方法（試行錯誤中）](#ビルド高速化方法試行錯誤中)
   - [並列度アップ](#並列度アップ)
+  - [利用しない submodule init の省略](#利用しない-submodule-init-の省略)
   - [apt キャッシュサーバの活用 apt-cacher-ng](#apt-キャッシュサーバの活用-apt-cacher-ng)
   - [Avoid copying files of all targets, which are not asked to build (TBD)](#avoid-copying-files-of-all-targets-which-are-not-asked-to-build-tbd)
 - [ビルド設定：rules/config](#ビルド設定rulesconfig)
@@ -68,6 +69,34 @@ On-line CPU(s) list:             0-7
 NUMA node0 CPU(s):               0-7
 ubuntu@sonic-builder:~/sonic-buildimage$ nproc
 8
+```
+
+### 利用しない submodule init の省略
+
+`git submodule update --init --recursive` を実施する際、ビルドしたい Target とは無関係にすべての platform が init される。
+init は 4min31sec 程度かかるため、利用しない platform を省略することで、数十秒短縮できることが期待される。
+
+```
+2022/06/30 Vanilla
+time git submodule update --init --recursive
+> real    4m38.462s
+
+2022/06/30 reduced submodules
+# Delete the relevant lines (platform/xxx) from `.gitmodules` and `.git/config`
+#Run git rm --cached path_to_submodule (no trailing slash).
+git rm --cached -r platform/marvell
+git rm --cached -r platform/nephos
+git rm --cached -r platform/centec
+git rm --cached -r platform/centec-arm64
+git rm --cached -r platform/cavium
+git rm --cached -r platform/marvell-arm64
+git rm --cached -r platform/marvell-armhf
+git rm --cached -r platform/innovium
+git rm --cached -r platform/barefoot/sonic-platform-modules-arista
+rm -rf platform/barefoot/sonic-platform-modules-arista
+git add .gitmodules
+time git submodule update --init --recursive
+> real    0m58.321s
 ```
 
 ### apt キャッシュサーバの活用 apt-cacher-ng
