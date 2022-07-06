@@ -56,7 +56,9 @@ SONiC設定サンプル集。仮想環境の場合は仮想マシンやコンテ
 - Official Pages
   - Main repo : https://github.com/sonic-net/SONiC
     - `This repository contains documentation, Wiki, master project management, and website for the Software for Open Networking in the Cloud (SONiC).`
-  - Wiki: https://github.com/sonic-net/SONiC/wiki
+  - Wiki (GitHub): https://github.com/sonic-net/SONiC/wiki
+  - Wiki (OCP): https://www.opencompute.org/wiki/Networking/SONiC
+    - Recordings from SONiC Sub-Project Calls に HLD Review 動画へのリンクあり
   - Source Code (build Repo) : https://github.com/Azure/sonic-buildimage
   - Roadmap : https://github.com/sonic-net/SONiC/wiki/Sonic-Roadmap-Planning
   - Feature Docs (HDL) : https://github.com/sonic-net/SONiC/tree/master/doc
