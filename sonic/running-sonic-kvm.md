@@ -343,7 +343,7 @@ $ ip a | grep vnet
 721: vnet3: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel master virbr0 state UNKNOWN group default qlen 1000
 722: vnet4: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel master virbr0 state UNKNOWN group default qlen 1000
 
-nsdevnotes/sonic/examples$ sudo ./nssetup-demo01.sh -c
+nsdevnotes/sonic/examples$ sudo ./nssetup-demo02-network.sh -c
 
 > ns1 ~ ns4 が作成されたことを確認
 $ ip netns
@@ -428,7 +428,7 @@ TODO: SONIC VM インターフェースの関係
 
 - 参考：[20.12. Retrieving Information about Your Virtual Machine](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/virtualization_deployment_and_administration_guide/sect-statlists)
   - RedHat, RHEL7 : VIRTUALIZATION DEPLOYMENT AND ADMINISTRATION GUIDE
-  
+
 
 ```
 > SONiC Switch Image の確認
