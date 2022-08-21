@@ -29,6 +29,17 @@ silent () {
 create_netns () {
     echo "create_netns for sonic-demo01"
 
+    # Create bridge
+    run ip link add br01 type bridge
+    run ip link add br02 type bridge
+    run ip link add br03 type bridge
+    run ip link add br04 type bridge
+
+    run ip link set br01 up
+    run ip link set br02 up
+    run ip link set br03 up
+    run ip link set br04 up
+
     # Create netns
     run ip netns add ns1
     run ip netns add ns2
@@ -93,6 +104,22 @@ destroy_netns () {
     silent ip netns del ns2
     silent ip netns del ns3
     silent ip netns del ns4
+
+    silent ip link del name veth1
+    silent ip link del name veth2
+    silent ip link del name veth3
+    silent ip link del name veth4
+
+    silent ip link set br01 down
+    silent ip link set br02 down
+    silent ip link set br03 down
+    silent ip link set br04 down
+
+    silent brctl delbr br01
+    silent brctl delbr br02
+    silent brctl delbr br03
+    silent brctl delbr br04
+
     #exit 1
 }
 

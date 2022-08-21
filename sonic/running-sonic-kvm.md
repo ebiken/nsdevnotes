@@ -209,26 +209,18 @@ $ virsh console sonic
 
 ![demo01.img](examples/demo01.png)
 
-（ホスト）VM Interface の接続先(`source bridge`)となる bridge を作成
+（ホスト）VM Interface の接続先(`source bridge`)となる bridge を作成し、ホストとみなした netns や veth pair を作成
 
 ```
-sudo ip link add br01 type bridge
-sudo ip link add br02 type bridge
-sudo ip link add br03 type bridge
-sudo ip link add br04 type bridge
-sudo ip link set br01 up
-sudo ip link set br02 up
-sudo ip link set br03 up
-sudo ip link set br04 up
+$ cd nsdevnotes/sonic/examples
+$ sudo ./nssetup-demo01-bridge.sh -c
 ```
 
-（ホスト）SONiC VM の作成＆ホストとみなした netns や veth pair を作成
+（ホスト）SONiC VM の作成
 
 ```
 $ cd nsdevnotes/sonic/examples
 nsdevnotes/sonic/examples$ virsh create sonic-demo01-bridge.xml
-
-$ sudo ./nssetup-demo01-bridge.sh -c
 ```
 
 （SONiC）config_db.json を変更し設定のリロード
