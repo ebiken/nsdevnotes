@@ -126,9 +126,8 @@ Cloning into '/home/ubuntu/sonic-buildimage/platform/p4/SAI-P4-BM'...
 
 ## ビルド設定：rules/config
 
-ビルド関係の設定はこちらで定義されている：[rules/config](https://github.com/Azure/sonic-buildimage/blob/master/rules/config)
-
-> TODO: rules/config をマニュアル編集して良いのか、別のオプション設定でするのが望ましいのかは要確認 => 良さそうだがもう少し学習＆確認を続ける
+ビルド関係の設定はこちらで定義されている：[rules/config](https://github.com/Azure/sonic-buildimage/blob/master/rules/config) <br />
+また、変更したい項目のみを `rules/config.user` に記載することで、オリジナルのファイルを変更することなくビルドオプションを上書きできる：[Makefile.workの当該箇所](https://github.com/sonic-net/sonic-buildimage/blob/946bc3b969d1960261f806b16db6d2f3d6c4ecee/Makefile.work#L124-L130)
 
 ### 有効にする機能の設定場所
 
@@ -151,7 +150,7 @@ INCLUDE_P4RT = n
 デフォルトの `YourPaSsWoRd` って左手小指疲れる... と思ったら変更。
 
 ```
-> rules/config
+> rules/config.user
 # DEFAULT_USERNAME - default username for installer build
 DEFAULT_USERNAME = admin
 
