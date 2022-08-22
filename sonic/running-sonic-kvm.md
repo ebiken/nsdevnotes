@@ -209,26 +209,18 @@ $ virsh console sonic
 
 ![demo01.img](examples/demo01.png)
 
-（ホスト）VM Interface の接続先(`source bridge`)となる bridge を作成
+（ホスト）VM Interface の接続先(`source bridge`)となる bridge を作成し、ホストとみなした netns や veth pair を作成
 
 ```
-sudo ip link add br01 type bridge
-sudo ip link add br02 type bridge
-sudo ip link add br03 type bridge
-sudo ip link add br04 type bridge
-sudo ip link set br01 up
-sudo ip link set br02 up
-sudo ip link set br03 up
-sudo ip link set br04 up
+$ cd nsdevnotes/sonic/examples
+$ sudo ./nssetup-demo01-bridge.sh -c
 ```
 
-（ホスト）SONiC VM の作成＆ホストとみなした netns や veth pair を作成
+（ホスト）SONiC VM の作成
 
 ```
 $ cd nsdevnotes/sonic/examples
 nsdevnotes/sonic/examples$ virsh create sonic-demo01-bridge.xml
-
-$ sudo ./nssetup-demo01-bridge.sh -c
 ```
 
 （SONiC）config_db.json を変更し設定のリロード
@@ -351,7 +343,7 @@ $ ip a | grep vnet
 721: vnet3: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel master virbr0 state UNKNOWN group default qlen 1000
 722: vnet4: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel master virbr0 state UNKNOWN group default qlen 1000
 
-nsdevnotes/sonic/examples$ sudo ./nssetup-demo01.sh -c
+nsdevnotes/sonic/examples$ sudo ./nssetup-demo02-network.sh -c
 
 > ns1 ~ ns4 が作成されたことを確認
 $ ip netns
@@ -436,7 +428,7 @@ TODO: SONIC VM インターフェースの関係
 
 - 参考：[20.12. Retrieving Information about Your Virtual Machine](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/virtualization_deployment_and_administration_guide/sect-statlists)
   - RedHat, RHEL7 : VIRTUALIZATION DEPLOYMENT AND ADMINISTRATION GUIDE
-  
+
 
 ```
 > SONiC Switch Image の確認
