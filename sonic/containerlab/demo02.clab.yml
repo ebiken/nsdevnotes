@@ -1,0 +1,20 @@
+# a simple topo of two alpine containers connected with each other
+name: demo02
+
+topology:
+  nodes:
+    sonic:
+      kind: sonic-vs
+      image: docker-sonic-vs
+    n1:
+      kind: linux
+      image: alpine:latest
+    n2:
+      kind: linux
+      image: alpine:latest
+  links:
+    - endpoints: ["n1:eth1","sonic:eth1"]
+    - endpoints: ["n2:eth1","sonic:eth2"]
+#    - endpoints: ["n1:eth1","sonic:Ethernet0"]
+#    - endpoints: ["n2:eth1","sonic:Ethernet4"]
+
