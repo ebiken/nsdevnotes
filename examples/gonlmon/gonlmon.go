@@ -15,6 +15,7 @@ import (
 
 const TCPF_ALL = 0xFFF
 
+// Extensions: include/uapi/linux/inet_diag.h
 const (
 	INET_DIAG_NONE = iota
 	INET_DIAG_MEMINFO
@@ -25,12 +26,23 @@ const (
 	INET_DIAG_TCLASS
 	INET_DIAG_SKMEMINFO
 	INET_DIAG_SHUTDOWN
-	INET_DIAG_DCTCPINFO
-	INET_DIAG_PROTOCOL
+	// Next extenstions cannot be requested in struct inet_diag_req_v2:
+	// its field idiag_ext has only 8 bits.
+	INET_DIAG_DCTCPINFO // request as INET_DIAG_VEGASINFO
+	INET_DIAG_PROTOCOL  // response attribute only
 	INET_DIAG_SKV6ONLY
+    INET_DIAG_LOCALS
+    INET_DIAG_PEERS
+    INET_DIAG_PAD
+    INET_DIAG_MARK     // only with CAP_NET_ADMIN
+    INET_DIAG_BBRINFO  // request as INET_DIAG_VEGASINFO
+    INET_DIAG_CLASS_ID // request as INET_DIAG_TCLASS
+    INET_DIAG_MD5SIG
+    INET_DIAG_ULP_INFO
+    INET_DIAG_SK_BPF_STORAGES
+    INET_DIAG_CGROUP_ID
+    __INET_DIAG_MAX
 )
-
-// PoolingではなくSubscribeしてPushできるか調べてみます。
 
 // some comments added from: https://man7.org/linux/man-pages/man7/sock_diag.7.html
 func main() {
@@ -73,9 +85,9 @@ func main() {
 		// reported. Ignored when querying for an individual socket.
 		// See TcpStatesMap later in this code for list of flags.
 		//// Everything
-		//TCPF_ALL,
+		TCPF_ALL,
 		//// Ignore TCP_SYN_RECV, TCP_TIME_WAIT, TCP_CLOSE, TCP_CLOSE_WAIT
-		TCPF_ALL & ^((1<<TCP_SYN_RECV)|(1<<TCP_TIME_WAIT)|(1<<TCP_CLOSE)|(1<<TCP_CLOSE_WAIT)),
+		//TCPF_ALL & ^((1<<TCP_SYN_RECV)|(1<<TCP_TIME_WAIT)|(1<<TCP_CLOSE)|(1<<TCP_CLOSE_WAIT)),
 		//// Ignore TCP_SYN_RECV
 		//TCPF_ALL & ^(1<<TCP_SYN_RECV),
 		//// Only TCP_TIME_WAIT
@@ -94,6 +106,11 @@ func main() {
 	msg.IDiagExt |= (1 << (INET_DIAG_INFO - 1))
 	req.AddData(msg)
 
+	// NETLINK_* defined in include/uapi/linux/netlink.h
+	// NETLINK_INET_DIAG is renamed to NETLINK_SOCK_DIAG in Linux 3.3 and
+	// extended to support AF_UNIX sockets. However, NETLINK_SOCK_DIAG is
+	// not defined in Golang syscall pkg.
+	// So keep using syscall.NETLINK_INET_DIAG = NETLINK_SOCK_DIAG = 0x4
 	res, err := req.Execute(syscall.NETLINK_INET_DIAG, 0)
 	if err != nil {
 		logrus.Error("req.Execute error: ", err)
@@ -104,24 +121,6 @@ func main() {
 	for _, data := range res {
 		m := ParseInetDiagMsg(data)
 		fmt.Println(m)
-
-		//m := (*InetDiagMsg)(unsafe.Pointer(&data[0]))
-		//fmt.Println("\n\n", i, data)
-		//fmt.Println(i, m)
-		//fmt.Printf(
-		//	"%3d %-6d %-5d %-5d %-8d %-8d %-10d %-10d %-5d %-10d %s\n",
-		//	i,
-		//	m.idiag_family,
-		//	m.idiag_state,
-		//	m.idiag_timer,
-		//	m.idiag_retrans,
-		//	m.idiag_expires,
-		//	m.idiag_rqueue,
-		//	m.idiag_wqueue,
-		//	m.idiag_uid,
-		//	m.idiag_inode,
-		//	showID(m.id),
-		//)
 	}
 }
 
@@ -253,7 +252,7 @@ func ipv6(original [4]be32) net.IP {
 }
 
 func (id *InetDiagSockId) String() string {
-	return fmt.Sprintf("%s:%d -> %s:%d", id.SrcIP().String(), id.IDiagSPort.Int(), id.DstIP().String(), id.IDiagDPort.Int())
+	return fmt.Sprintf("%15s:%5d -> %15s:%5d", id.SrcIP().String(), id.IDiagSPort.Int(), id.DstIP().String(), id.IDiagDPort.Int())
 }
 
 type InetDiagReqV2 struct {
