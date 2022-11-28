@@ -18,5 +18,8 @@ CONFIG_IP_TCPDIAG
 - [Blog: 2022-01-11 Netlinkプログラミングの書き方](https://hana-shin.hatenablog.com/entry/2022/01/11/212403)
 - [gwind/go-netlink-socket-monitor.go](https://gist.github.com/gwind/05f5f649d93e6015cf47ffa2b2fd9713)
 - [Parsing the RTA_MULTIPATH attribute from Rtnetlink Jan 25, 2018](https://ederlf.website/post/netlink-multipath/)
+- [gist: cl4u2: Linux route monitoring example](https://gist.github.com/cl4u2/5204374)
+  - Example code (including `route_monitor.c`)
+
 
 
