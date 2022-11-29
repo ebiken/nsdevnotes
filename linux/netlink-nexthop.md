@@ -271,20 +271,119 @@ id 2 via 172.20.105.173 dev eno1 scope link
 id 3 group 1/2
 ```
 
-## netlink/rtnetlink for Next Hop Object
+## ip route 追加時の netlink/rtnetlink
 
-ようやく本題に辿り着きました。 Next Hop Group を設定する際の netlink/rtnetlink の動作を確認しましょう。
-比較のために従来の方法と ip nexthop を用いる方法を比較します。
+ようやく本題に辿り着きました。 ip route を設定する際の netlink/rtnetlink の動作を確認しましょう。
 
 
-### ip nexthop 無し
+>>> TODO: rtmsg, rtattr についての解説、ip route や nexthop で利用される RTA の解説。
+>>> strace のアウトプットと、データ構造の図を対比させて描画
 
-TODO
+## ip route 追加時の netlink/rtnetlink の具体例
 
-### ip nexthop 有り
+具体例として、以下３パターンを比較します。
 
-TODO
+- nexthop 利用無し（従来）
+  - `ip route add 10.11.11.99/32 via 172.20.104.1 dev eno1`
+- nexthop を利用
+  - `ip nexthop add id 11 via 172.20.105.173 dev eno1`
+  - `ip route add 10.11.12.13/32 nhid 11`
+- nexthop group を利用
+  - `ip nexthop add id 1 via 172.20.105.172 dev eno1`
+  - `ip nexthop add id 2 via 172.20.105.173 dev eno1`
+  - `ip nexthop add id 3 group 1/2`
+  - `ip route add 10.11.12.13/32 nhid 3`
 
+それぞれの解説では設定のための rtnetlink message (sendmsg) だけを抜粋しています。
+デバイス名の解決など、その前後でもメッセージがやりとりされる場合がありますので、詳細は以下 strace のログを参照してください。（ご自身の環境で strace コマンドを入力してみる事をお勧めします）
+
+- strace logs
+  - [nexthop 利用無し（従来）](logs/strace-ip-route-add-no-nexthop.log)
+  - [nexthop を利用](logs/strace-ip-route-add-nexthop.log)
+  - [nexthop group を利用](logs/strace-ip-route-add-nexthop-group.log)
+
+
+### strace と RTM_NEWNEXTHOP
+
+strace コマンドと Kernel 間でやり取りされる netlink message をモニタ可能な便利なツールです。
+
+以降の解説では、ip コマンドの前に `strace` を付けて実行しています。
+
+Next Hop Object に関するメッセージである `RTM_NEWNEXTHOP` には [strace v5.15 (2021-10-14) から対応](https://fossies.org/linux/strace/ChangeLog) していますので、もしそれ以前のバージョンの場合は以下のように v5.15 以上にアップデートが必要です。
+
+yum/apt コマンドによるアップデートができればベストですが、もし yum/apt で v5.15 以降にアップデートされない場合は以下のように Source Code からのビルド＆インストールが必要になります。
+
+Ubuntu 20.04.4 で strace v6.0 をビルド＆インストールした際の手順は以下の通りです。
+
+```
+> https://github.com/strace/strace/releases/tag/v6.0
+> download strace-6.0.tar.xz
+
+$ tar xf strace-6.0.tar.xz
+$ cd strace-6.0
+$ ./configure --disable-mpers
+$ make
+$ sudo make install
+
+$ which strace
+/usr/local/bin/strace
+
+$ strace --version
+strace -- version 6.0
+Copyright (c) 1991-2022 The strace developers <https://strace.io>.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+Optional features enabled: stack-trace=libunwind no-m32-mpers no-mx32-mpers
+```
+
+### nexthop 利用無し（従来）
+
+```
+# ip route add 10.11.11.99/32 via 172.20.104.1 dev eno1
+
+sendmsg(3, {msg_name={sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, msg_namelen=12, msg_iov=[{iov_base={{len=52, type=RTM_NEWROUTE, flags=NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE, seq=1669690078, pid=0}, {rtm_family=AF_INET, rtm_dst_len=32, rtm_src_len=0, rtm_tos=0, rtm_table=RT_TABLE_MAIN, rtm_protocol=RTPROT_BOOT, rtm_scope=RT_SCOPE_UNIVERSE, rtm_type=RTN_UNICAST, rtm_flags=0}, [{{nla_len=8, nla_type=RTA_DST}, inet_addr("10.11.11.99")}, {{nla_len=8, nla_type=RTA_GATEWAY}, inet_addr("172.20.104.1")}, {{nla_len=8, nla_type=RTA_OIF}, if_nametoindex("eno1")}]}, iov_len=52}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 52
+```
+
+
+
+TODO ：解説
+
+### nexthop を利用
+
+```
+# ip nexthop add id 11 via 172.20.105.173 dev eno1
+
+sendmsg(3, {msg_name={sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, msg_namelen=12, msg_iov=[{iov_base=[{nlmsg_len=48, nlmsg_type=RTM_NEWNEXTHOP, nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE, nlmsg_seq=1669695871, nlmsg_pid=0}, {nh_family=AF_INET, nh_scope=RT_SCOPE_UNIVERSE, nh_protocol=RTPROT_UNSPEC, nh_flags=0}, [[{nla_len=8, nla_type=NHA_ID}, 11], [{nla_len=8, nla_type=NHA_GATEWAY}, inet_addr("172.20.105.173")], [{nla_len=8, nla_type=NHA_OIF}, if_nametoindex("eno1")]]], iov_len=48}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 48
+
+> ip route add 10.11.12.13/32 nhid 11
+
+sendmsg(3, {msg_name={sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, msg_namelen=12, msg_iov=[{iov_base=[{nlmsg_len=44, nlmsg_type=RTM_NEWROUTE, nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE, nlmsg_seq=1669710575, nlmsg_pid=0}, {rtm_family=AF_INET, rtm_dst_len=32, rtm_src_len=0, rtm_tos=0, rtm_table=RT_TABLE_MAIN, rtm_protocol=RTPROT_BOOT, rtm_scope=RT_SCOPE_UNIVERSE, rtm_type=RTN_UNICAST, rtm_flags=0}, [[{nla_len=8, nla_type=RTA_DST}, inet_addr("10.11.12.13")], [{nla_len=8, nla_type=RTA_NH_ID}, "\x0b\x00\x00\x00"]]], iov_len=44}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 44
+```
+
+TODO ：解説
+
+### nexthop group を利用
+
+TODO ：解説
+
+```
+> ip nexthop add id 1 via 172.20.105.172 dev eno1
+> ip nexthop add id 2 via 172.20.105.173 dev eno1
+> ip nexthop add id 3 group 1/2
+
+sendmsg(3, {msg_name={sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, msg_namelen=12, msg_iov=[{iov_base=[{nlmsg_len=48, nlmsg_type=RTM_NEWNEXTHOP, nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE, nlmsg_seq=1669711458, nlmsg_pid=0}, {nh_family=AF_INET, nh_scope=RT_SCOPE_UNIVERSE, nh_protocol=RTPROT_UNSPEC, nh_flags=0}, [[{nla_len=8, nla_type=NHA_ID}, 1], [{nla_len=8, nla_type=NHA_GATEWAY}, inet_addr("172.20.105.172")], [{nla_len=8, nla_type=NHA_OIF}, if_nametoindex("eno1")]]], iov_len=48}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 48
+
+sendmsg(3, {msg_name={sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, msg_namelen=12, msg_iov=[{iov_base=[{nlmsg_len=48, nlmsg_type=RTM_NEWNEXTHOP, nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE, nlmsg_seq=1669711492, nlmsg_pid=0}, {nh_family=AF_INET, nh_scope=RT_SCOPE_UNIVERSE, nh_protocol=RTPROT_UNSPEC, nh_flags=0}, [[{nla_len=8, nla_type=NHA_ID}, 2], [{nla_len=8, nla_type=NHA_GATEWAY}, inet_addr("172.20.105.173")], [{nla_len=8, nla_type=NHA_OIF}, if_nametoindex("eno1")]]], iov_len=48}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 48
+
+sendmsg(3, {msg_name={sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, msg_namelen=12, msg_iov=[{iov_base=[{nlmsg_len=52, nlmsg_type=RTM_NEWNEXTHOP, nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE, nlmsg_seq=1669711532, nlmsg_pid=0}, {nh_family=AF_UNSPEC, nh_scope=RT_SCOPE_UNIVERSE, nh_protocol=RTPROT_UNSPEC, nh_flags=0}, [[{nla_len=8, nla_type=NHA_ID}, 3], [{nla_len=20, nla_type=NHA_GROUP}, [{id=1, weight=0}, {id=2, weight=0}]]]], iov_len=52}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 52
+
+> ip route add 10.11.12.13/32 nhid 3
+
+sendmsg(3, {msg_name={sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, msg_namelen=12, msg_iov=[{iov_base=[{nlmsg_len=44, nlmsg_type=RTM_NEWROUTE, nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE, nlmsg_seq=1669711569, nlmsg_pid=0}, {rtm_family=AF_INET, rtm_dst_len=32, rtm_src_len=0, rtm_tos=0, rtm_table=RT_TABLE_MAIN, rtm_protocol=RTPROT_BOOT, rtm_scope=RT_SCOPE_UNIVERSE, rtm_type=RTN_UNICAST, rtm_flags=0}, [[{nla_len=8, nla_type=RTA_DST}, inet_addr("10.11.12.13")], [{nla_len=8, nla_type=RTA_NH_ID}, "\x03\x00\x00\x00"]]], iov_len=44}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 44
+```
+
+TODO ：解説
 
 ## memo: Linux Kernel Source Code snippet
 
