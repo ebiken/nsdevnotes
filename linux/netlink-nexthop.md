@@ -1,309 +1,24 @@
 # netlink/rtnetlink - Next Hop Object & Next Hop Group
 
-## netlink とは？
+> 特に言及がない場合は Linux v6.0 をベースに解説しています
 
-netlink とは、 Linux Kernel と情報のやり取りをするために利用されるインタフェース（API）、もしくはそれを提供するサブシステムです。
-netlink は Socket を利用するため、TCP/UDP等の Socket プログラミングに馴染みある技術者であれば学習コストが少ないというメリットもあります。
+本ページでは ip route を設定する際の netlink (rtnetlink) の動作を、 Linux v5.3 で導入された Next Hop Object を利用しない従来の方法と、利用した場合を比較を中心に解説しています。
 
-netlink はプロトコル `protocol` と呼ばれる機能毎にグルーピングされます。
-今回解説する IP Routing / Neighbor に関連した機能は `rtnetlink` と呼ばれ `protocol == NETLINK_ROUTE` という分類に所属します。
+- netlink に関する基本的な説明は [Linux Netlink](./netlink.md) を参照
+- Linux における IP Routing （Fib や nexthop を含む）に関しては [Linux IP Routing](./iprouting.md) を参照
 
-netlink を利用するためには、socket システムコール `int socket(int domain, int type, int protocol)` の第一引数に `AF_NETLINK` 、第二引数に `SOCK_RAW`、第三引数に `protocol` を指定します。
+目次
 
-```
-fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
-```
+- [strace と RTM\_NEWNEXTHOP](#strace-と-rtm_newnexthop)
+- [ip route 追加時の netlink/rtnetlink の具体例](#ip-route-追加時の-netlinkrtnetlink-の具体例)
+  - [nexthop 利用無し（従来）](#nexthop-利用無し従来)
+  - [nexthop 利用無し（従来） Multipath](#nexthop-利用無し従来-multipath)
+  - [nexthop を利用](#nexthop-を利用)
+  - [nexthop group を利用 Multipath](#nexthop-group-を利用-multipath)
+- [route add ipv6](#route-add-ipv6)
+- [reference](#reference)
 
-## netlink/rtnetlink を学習するモチベーション
-
-White Box Switch 等の上で動作する Network OS は、 netlinkを利用して様々な情報をホストOSや routing application （OSPF/ISIS/BGPの機能を提供するプロセスやコンテナ） から情報を受け取る場合も多く、Linux Server だけでなくスイッチやルータの実装を知るためにも重要な機能です。
-例えば SONiC では、netlink を利用して Linux Kernel からポートやネイバーの情報を取得する他にも、FRR が動作する bgp container 内では FPM (Forwarding Plane Manager) との通信にも利用されています。
-
-そのため、ネットワークに関連した幅広い技術者にとって学ぶべき基本的な技術と考えられます。
-
-
-図：ネットリンクを活用している NOS の例  
-（引用：Linux Plumbers Conf 2019: David Ahern: [nexthop-objects-talk.pdf](https://lpc.events/event/4/contributions/434/attachments/251/436/nexthop-objects-talk.pdf)）
-
-![netlink-nexthop-nos.png](figures/netlink-nexthop-nos.png)
-
-## iproute2
-
-rtnetlink を多用するツールとして iproute2 が挙げられます。
-iproute2 の中の ip コマンドを用いて、netlink がどのように利用されているか見る事ができます。
-
-例えば以下例では、netlink を用いて static route を追加しています。
-
-- `sendmsg`
-  - type=RTM_NEWROUTE
-  - rtm_family=AF_INET, rtm_dst_len=32
-  - {nla_len=8, nla_type=RTA_DST}, inet_addr("10.10.10.10")}
-  - {nla_len=8, nla_type=RTA_GATEWAY}, inet_addr("172.20.105.174")
-
-```
-# strace ip route add 10.10.10.10/32 via 172.20.105.174 dev eno1
-...
-socket(AF_NETLINK, SOCK_RAW|SOCK_CLOEXEC, NETLINK_ROUTE) = 3
-...
-bind(3, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 0
-...
-sendmsg(3, {msg_name={sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, msg_namelen=12, msg_iov=[{iov_base={{len=52, type=RTM_NEWROUTE, flags=NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE, seq=1669630667, pid=0}, {rtm_family=AF_INET, rtm_dst_len=32, rtm_src_len=0, rtm_tos=0, rtm_table=RT_TABLE_MAIN, rtm_protocol=RTPROT_BOOT, rtm_scope=RT_SCOPE_UNIVERSE, rtm_type=RTN_UNICAST, rtm_flags=0}, [{{nla_len=8, nla_type=RTA_DST}, inet_addr("10.10.10.10")}, {{nla_len=8, nla_type=RTA_GATEWAY}, inet_addr("172.20.105.174")}, {{nla_len=8, nla_type=RTA_OIF}, if_nametoindex("eno1")}]}, iov_len=52}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 52
-```
-
-## Route Entry & Next Hop のデータ構造
-
-Route Entry とは宛先に到達するために必要な情報を持ち、一般的に宛先（prefix/len）に対応した転送先情報 gateway (gw) と device (dev) を保持します。
-
-実装により様々な保持の仕方（データ構造）が存在しますが、ここでは Linux ではどのようなデータ構造となっているのかを見ていきましょう。
-
-> - この場合の prefix は Longest Prefix Match に利用されマスク（len）を含みます）
-> - Linuxを含め、gw/dev 以外にも様々な情報を保持する実装が多いですが、ここでは省略します。
-
-図：Route Entry の概念図
-![netlink-nexthop-route-object.png](figures/netlink-nexthop-route-object.png)
-
-Linux 5.2 以前と、Linux 5.3 以降でデータ構造に変更がありました。
-具体的には、以下図の右側のように、Linux 5.3 で Next Hop に関する情報が Route Entry から分離されました。
-
-これにより、以下のようなメリットが得られました。
-
-- 追加・更新に必要な時間の短縮
-  - Next Hop が無い場合、Route追加時に以下操作が毎回必要となる
-    - gateway address + dev が正しいかの確認（Lookup）
-    - トンネルインターフェースの場合、状態の確認
-    - Next Hop の比較・検索（既に存在するか？新規か？）
-  - Next Hop Group が無い場合、Next Hop 追加・変更・削除時に、全ての route エントリの更新が必要
-- リソース（メモリ・SRAM/TCAM）の節約
-  - 共通の Net Hop を持つ複数の Route Entry が Next Hop を共有可能
-
-図：Linux の Route Entry 及び Next Hop Object の概念図
-![netlink-nexthop-route-nexthop.png](figures/netlink-nexthop-route-nexthop.png)
-
-## fib_info & Next Hop Object (Linux Source Code)
-
-Linux Kernel の Source Code ではどのように定義されているか確認しましょう。
-
-Linux ではルーティングエントリは `ip_fib.h` に定義された `fib_info` に保持されます。
-（IPv6の場合は `ip6_fib.h` に定義された `fib6_info`）
-
-Linux 5.2 までは `fib_info` の `fib_nh` という構造体に nexthop (dev/gw) に関する情報は保持されていますが、Linux 5.3 では `nexthop` が追加されているのが確認できます。
-
-Linux 5.3 で `nexthop` があれば `fib_nh` は不要ですが、`fib_nh` と `nexthop` の両方がある事により、Linux 5.2 までのデータ構造を想定したコードと新しいコードが並存する事が可能となっています。
-
-> linux-5.2/include/net/ip_fib.h 
-```c
-struct fib_info {
-...
-    int         fib_nhs;
-    bool            fib_nh_is_v6;
-    struct rcu_head     rcu;
-    struct fib_nh       fib_nh[0];
-#define fib_dev     fib_nh[0].fib_nh_dev
-};
-```
-
-
-> linux-5.3/include/net/ip_fib.h
-```c
-struct fib_info {
-...
-    int         fib_nhs;
-    bool            fib_nh_is_v6;
-    bool            nh_updated;
-    struct nexthop      *nh;
-    struct rcu_head     rcu;
-    struct fib_nh       fib_nh[0];
-};
-```
-
-`nexthop` 構造体は以下のように `nexthop` -> `nh_info` -> `fib_nh_common` 構造体で dev/gw の情報を保持しています。
-
-> linux-5.3/include/net/nexthop.h
-```c
-struct nexthop {
-...
-    union {
-        struct nh_info  __rcu *nh_info;
-        struct nh_group __rcu *nh_grp;
-    };
-};
-
-struct nh_info {
-...
-    u8          family;
-...
-    union {
-        struct fib_nh_common    fib_nhc;
-        struct fib_nh       fib_nh;
-        struct fib6_nh      fib6_nh;
-    };
-};
-```
-
-> linux-5.3/include/net/ip_fib.h
-```c
-struct fib_nh_common {
-...
-    struct net_device   *nhc_dev;
-    int         nhc_oif;
-    unsigned char       nhc_scope;
-    u8          nhc_family;
-    u8          nhc_gw_family;
-    unsigned char       nhc_flags;
-    struct lwtunnel_state   *nhc_lwtstate;
-
-    union {
-        __be32          ipv4;
-        struct in6_addr ipv6;
-    } nhc_gw;
-...
-};
-```
-
-## Next Hop Group (nh_group)
-
-`nexthop` 構造体には、`nh_info` と `nh_group` が `union` で定義されていました。
-`nh_info` ではなく `nh_group` を用いる事により Next Hop が複数ある状態である Multi Path を定義できます。
-
-具体的には、`nexthop` -> `nh_group` -> `nh_group_entry` -> `nexthop` -> `nh_info` と定義します。
-通常 `nh_group_entry` は２つ以上となります。
-
-> linux-5.3/include/net/nexthop.h
-```c
-struct nexthop {
-...
-    union {
-        struct nh_info  __rcu *nh_info;
-        struct nh_group __rcu *nh_grp;
-    };
-};
-```
-
-> linux-5.3/include/net/nexthop.h
-```c
-struct nh_group {
-    u16         num_nh;
-    bool            mpath;
-    bool            has_v4;
-    struct nh_grp_entry nh_entries[0];
-};
-
-struct nh_grp_entry {
-    struct nexthop  *nh;
-    u8      weight;
-    atomic_t    upper_bound;
-
-    struct list_head nh_list;
-    struct nexthop  *nh_parent;  /* nexthop of group with this entry */
-};
-```
-
-## Next Hop Group の設定方法
-
-> iproute2 のバージョンに注意
-
-ip コマンド（iproute2）を用いる事により、nexthop group を用いた (ECMP含む) Multi Path を設定できます。
-具体的には、以下手順となります。
-
-- nexthop を追加
-- nexthop group を追加
-- route を追加（nexthop group の id を Next Hop として指定）
-
-`ip nexthop list` コマンドにより、nexthop が作成されていることが確認できます。
-
-```
-> more on `man ip nexthop`
-> make sure your iproute2 supports nexthop
-$ ip -V
-ip utility, iproute2-ss200127
-
-$ ip ne [tab]
-neigh    netconf  netns    nexthop
-
-> Adds a nexthop group with id 3 using nexthops
-> with ids 1 and 2 at equal weight.
-
-ip nexthop add id 1 via 172.20.105.172 dev eno1
-ip nexthop add id 2 via 172.20.105.173 dev eno1
-ip nexthop add id 3 group 1/2
-
-$ ip nexthop list
-id 1 via 172.20.105.172 dev eno1 scope link
-id 2 via 172.20.105.173 dev eno1 scope link
-id 3 group 1/2
-
-$ ip route add 10.99.99.99/32 nhid 3
-
-$ ip route
-10.99.99.99 nhid 3
-        nexthop via 172.20.105.172 dev eno1 weight 1
-        nexthop via 172.20.105.173 dev eno1 weight 1
-```
-
-なお、従来の方法である Next Hop Group を利用せず Multi Path を設定する事も可能です。
-（Linux v5.2 以前の設定方法）
-
-この場合、`fib_info` では `struct nexthop *nh;` ではなく `struct fib_nh fib_nh[0];` が利用されます。
-`ip nexthop list` コマンドにより、nexthop が作成されて**いない**ことが確認できます。
-
-```
-> If you do not use nexthop id, then it will be
-> configured in legacy way (non-nexthop object)
-
-$ ip route add 10.11.11.11/32 \
-    nexthop via 172.20.105.174 dev eno1 \
-    nexthop via 172.20.105.175 dev eno1
-
-$ ip route
-default via 172.20.104.1 dev eno1 proto static
-10.11.11.11
-        nexthop via 172.20.105.174 dev eno1 weight 1
-        nexthop via 172.20.105.175 dev eno1 weight 1
-10.99.99.99 nhid 3
-        nexthop via 172.20.105.172 dev eno1 weight 1
-        nexthop via 172.20.105.173 dev eno1 weight 1
-
-> Make sure gateways defined using nexthop are only shown
-
-$ ip nexthop list
-id 1 via 172.20.105.172 dev eno1 scope link
-id 2 via 172.20.105.173 dev eno1 scope link
-id 3 group 1/2
-```
-
-## ip route 追加時の netlink/rtnetlink
-
-ようやく本題に辿り着きました。 ip route を設定する際の netlink/rtnetlink の動作を確認しましょう。
-
-
->>> TODO: rtmsg, rtattr についての解説、ip route や nexthop で利用される RTA の解説。
->>> strace のアウトプットと、データ構造の図を対比させて描画
-
-## ip route 追加時の netlink/rtnetlink の具体例
-
-具体例として、以下３パターンを比較します。
-
-- nexthop 利用無し（従来）
-  - `ip route add 10.11.11.99/32 via 172.20.104.1 dev eno1`
-- nexthop を利用
-  - `ip nexthop add id 11 via 172.20.105.173 dev eno1`
-  - `ip route add 10.11.12.13/32 nhid 11`
-- nexthop group を利用
-  - `ip nexthop add id 1 via 172.20.105.172 dev eno1`
-  - `ip nexthop add id 2 via 172.20.105.173 dev eno1`
-  - `ip nexthop add id 3 group 1/2`
-  - `ip route add 10.11.12.13/32 nhid 3`
-
-それぞれの解説では設定のための rtnetlink message (sendmsg) だけを抜粋しています。
-デバイス名の解決など、その前後でもメッセージがやりとりされる場合がありますので、詳細は以下 strace のログを参照してください。（ご自身の環境で strace コマンドを入力してみる事をお勧めします）
-
-- strace logs
-  - [nexthop 利用無し（従来）](logs/strace-ip-route-add-no-nexthop.log)
-  - [nexthop を利用](logs/strace-ip-route-add-nexthop.log)
-  - [nexthop group を利用](logs/strace-ip-route-add-nexthop-group.log)
-
-
-### strace と RTM_NEWNEXTHOP
+## strace と RTM_NEWNEXTHOP
 
 strace コマンドと Kernel 間でやり取りされる netlink message をモニタ可能な便利なツールです。
 
@@ -337,180 +52,257 @@ warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 Optional features enabled: stack-trace=libunwind no-m32-mpers no-mx32-mpers
 ```
 
+## ip route 追加時の netlink/rtnetlink の具体例
+
+ip route を設定する際の netlink/rtnetlink の動作を確認しましょう。
+
+具体例として、以下３パターンを比較します。
+"Multipath" は２つ（以上）の nexthop が存在する route を意味します。
+
+- nexthop 利用無し（従来）
+  - `ip route add 10.11.11.99/32 via 172.20.104.1 dev eno1`
+- nexthop 利用無し Multipath（従来）
+  - `ip route add 10.11.11.11/32 nexthop via 172.20.105.174 dev eno1 nexthop via 172.20.105.175 dev eno1`
+- nexthop を利用
+  - `ip nexthop add id 11 via 172.20.105.173 dev eno1`
+  - `ip route add 10.11.12.13/32 nhid 11`
+- nexthop group を利用 Multipath
+  - `ip nexthop add id 1 via 172.20.105.172 dev eno1`
+  - `ip nexthop add id 2 via 172.20.105.173 dev eno1`
+  - `ip nexthop add id 3 group 1/2`
+  - `ip route add 10.11.12.13/32 nhid 3`
+
+それぞれの解説では設定のための rtnetlink message である sendmsg だけを抜粋しています。
+デバイス名の解決など、その前後でもメッセージがやりとりされる場合がありますので、詳細は以下 strace のログを参照してください。（ご自身の環境で strace コマンドを入力してみる事をお勧めします）
+
+- strace logs
+  - [nexthop 利用無し（従来）](logs/strace-ip-route-add-no-nexthop.log)
+  - [nexthop 利用無し（従来）Multipath](logs/strace-ip-route-add-no-nexthop-multipath.log)
+  - [nexthop を利用](logs/strace-ip-route-add-nexthop.log)
+  - [nexthop group を利用 Multipath](logs/strace-ip-route-add-nexthop-group.log)
+
+共通の解説
+
+- `RTA_OIF` の値である `if_nametoindex(<name>)` は、デバイス名から dev index を求める関数です。
+  - 実際の netlink message ではデバイス名（e.g. `eno1`）ではなく、数字（ID）が送信される事に留意してください。
+- `rtmsg rtm_table` や `RTA_TABLE` で利用される route table の一覧は `cat /etc/iproute2/rt_tables` から取得可能
+  - `RT_TABLE_MAIN` (Table ID: 254)  は Table ID を指定せず route を追加した場合追加されるテーブル
+- 宛先アドレス（PREFIX）について
+  - route entry の宛先アドレス情報は `RTA_DST` に保持されますが、PREFIX Length は `rtm_dst_len` に保持されます。
+  - 宛先 prefix/length に関する情報が RT Message と Attribute の異なる場所に格納されるので注意が必要です。
+
 ### nexthop 利用無し（従来）
+
+nexthop object を用いない従来の方法では、 `RTM_NEWROUTE` に nexthop に関する情報が含まれます。
 
 ```
 # ip route add 10.11.11.99/32 via 172.20.104.1 dev eno1
 
 sendmsg(3, {msg_name={sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, msg_namelen=12, msg_iov=[{iov_base={{len=52, type=RTM_NEWROUTE, flags=NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE, seq=1669690078, pid=0}, {rtm_family=AF_INET, rtm_dst_len=32, rtm_src_len=0, rtm_tos=0, rtm_table=RT_TABLE_MAIN, rtm_protocol=RTPROT_BOOT, rtm_scope=RT_SCOPE_UNIVERSE, rtm_type=RTN_UNICAST, rtm_flags=0}, [{{nla_len=8, nla_type=RTA_DST}, inet_addr("10.11.11.99")}, {{nla_len=8, nla_type=RTA_GATEWAY}, inet_addr("172.20.104.1")}, {{nla_len=8, nla_type=RTA_OIF}, if_nametoindex("eno1")}]}, iov_len=52}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 52
+
+Netlink Message Type: RTM_NEWROUTE
+RT Message:
+    rtm_family=AF_INET
+    rtm_dst_len=32
+    rtm_src_len=0
+    rtm_tos=0
+    rtm_table=RT_TABLE_MAIN
+    rtm_protocol=RTPROT_BOOT
+    rtm_scope=RT_SCOPE_UNIVERSE
+    rtm_type=RTN_UNICAST
+    rtm_flags=0
+Netlink Attribute:
+    {nla_len=8, nla_type=RTA_DST}, inet_addr("10.11.11.99")
+    {nla_len=8, nla_type=RTA_GATEWAY}, inet_addr("172.20.104.1")
+    {nla_len=8, nla_type=RTA_OIF}, if_nametoindex("eno1")
 ```
 
+### nexthop 利用無し（従来） Multipath
+
+nexthop object を用いない従来の方法でも、複数の nexthop 設定（Multipath）は可能です。
+`RTA_MULTIPATH` の値として、 `rtnexthop` 構造体を nexthop の数だけ利用し、 `rtnexthop` の中の `rtnh_ifindex` に Output Interface ID（`RTA_OIF` 相当）を、`rtnexthop` の値に `RTA_GATEWAY` として gateway アドレスをセットします。
 
 
-TODO ：解説
+```c
+// include/uapi/linux/rtnetlink.h
+struct rtnexthop {
+    unsigned short      rtnh_len;
+    unsigned char       rtnh_flags;
+    unsigned char       rtnh_hops;
+    int         rtnh_ifindex;
+};
+```
+
+```
+# ip route add 10.11.11.11/32 nexthop via 172.20.105.174 dev eno1 nexthop via 172.20.105.175 dev eno1
+
+sendmsg(3, {msg_name={sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, msg_namelen=12, msg_iov=[{iov_base=[{nlmsg_len=72, nlmsg_type=RTM_NEWROUTE, nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE, nlmsg_seq=1669864316, nlmsg_pid=0}, {rtm_family=AF_INET, rtm_dst_len=32, rtm_src_len=0, rtm_tos=0, rtm_table=RT_TABLE_MAIN, rtm_protocol=RTPROT_BOOT, rtm_scope=RT_SCOPE_UNIVERSE, rtm_type=RTN_UNICAST, rtm_flags=0}, [[{nla_len=8, nla_type=RTA_DST}, inet_addr("10.11.11.11")], [{nla_len=36, nla_type=RTA_MULTIPATH}, [[{rtnh_len=16, rtnh_flags=0, rtnh_hops=0, rtnh_ifindex=if_nametoindex("eno1")}, [{nla_len=8, nla_type=RTA_GATEWAY}, inet_addr("172.20.105.174")]], [{rtnh_len=16, rtnh_flags=0, rtnh_hops=0, rtnh_ifindex=if_nametoindex("eno1")}, [{nla_len=8, nla_type=RTA_GATEWAY}, inet_addr("172.20.105.175")]]]]]], iov_len=72}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 72
+
+Netlink Message Type: RTM_NEWROUTE
+RT Message:
+    rtm_family=AF_INET
+    rtm_dst_len=32
+    rtm_src_len=0
+    rtm_tos=0
+    rtm_table=RT_TABLE_MAIN
+    rtm_protocol=RTPROT_BOOT
+    rtm_scope=RT_SCOPE_UNIVERSE
+    rtm_type=RTN_UNICAST
+    rtm_flags=0
+Netlink Attribute:
+    {nla_len=8, nla_type=RTA_DST}, inet_addr("10.11.11.11")
+    {nla_len=36, nla_type=RTA_MULTIPATH}
+        {rtnh_len=16, rtnh_flags=0, rtnh_hops=0, rtnh_ifindex=if_nametoindex("eno1")}
+            {nla_len=8, nla_type=RTA_GATEWAY}, inet_addr("172.20.105.174")]
+        {rtnh_len=16, rtnh_flags=0, rtnh_hops=0, rtnh_ifindex=if_nametoindex("eno1")}
+            {nla_len=8, nla_type=RTA_GATEWAY}, inet_addr("172.20.105.175")
+```
+
 
 ### nexthop を利用
 
+Next Hop Object を利用する場合は、まず `RTM_NEWNEXTHOP` メッセージを送信して nexthop を作成し、そのIDを（`RTA_GATEWAY` や `RTA_OIF` の代わりに） `RTM_NEWROUTE` の Attribute である `RTA_NH_ID` に指定して送信します。
+
+
 ```
-# ip nexthop add id 11 via 172.20.105.173 dev eno1
+> ip nexthop add id 11 via 172.20.105.173 dev eno1
 
 sendmsg(3, {msg_name={sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, msg_namelen=12, msg_iov=[{iov_base=[{nlmsg_len=48, nlmsg_type=RTM_NEWNEXTHOP, nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE, nlmsg_seq=1669695871, nlmsg_pid=0}, {nh_family=AF_INET, nh_scope=RT_SCOPE_UNIVERSE, nh_protocol=RTPROT_UNSPEC, nh_flags=0}, [[{nla_len=8, nla_type=NHA_ID}, 11], [{nla_len=8, nla_type=NHA_GATEWAY}, inet_addr("172.20.105.173")], [{nla_len=8, nla_type=NHA_OIF}, if_nametoindex("eno1")]]], iov_len=48}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 48
 
+Netlink Message Type: RTM_NEWNEXTHOP
+Next Hop Message:
+    nh_family=AF_INET,
+    nh_scope=RT_SCOPE_UNIVERSE,
+    nh_protocol=RTPROT_UNSPEC,
+    nh_flags=0
+Netlink Attribute:
+    {nla_len=8, nla_type=NHA_ID}, 11
+    {nla_len=8, nla_type=NHA_GATEWAY}, inet_addr("172.20.105.173")
+    {nla_len=8, nla_type=NHA_OIF}, if_nametoindex("eno1")
+```
+
+```
 > ip route add 10.11.12.13/32 nhid 11
 
 sendmsg(3, {msg_name={sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, msg_namelen=12, msg_iov=[{iov_base=[{nlmsg_len=44, nlmsg_type=RTM_NEWROUTE, nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE, nlmsg_seq=1669710575, nlmsg_pid=0}, {rtm_family=AF_INET, rtm_dst_len=32, rtm_src_len=0, rtm_tos=0, rtm_table=RT_TABLE_MAIN, rtm_protocol=RTPROT_BOOT, rtm_scope=RT_SCOPE_UNIVERSE, rtm_type=RTN_UNICAST, rtm_flags=0}, [[{nla_len=8, nla_type=RTA_DST}, inet_addr("10.11.12.13")], [{nla_len=8, nla_type=RTA_NH_ID}, "\x0b\x00\x00\x00"]]], iov_len=44}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 44
+
+Netlink Message Type: RTM_NEWROUTE
+Next Hop Message:
+    rtm_family=AF_INET
+    rtm_dst_len=32
+    rtm_src_len=0
+    rtm_tos=0
+    rtm_table=RT_TABLE_MAIN
+    rtm_protocol=RTPROT_BOOT
+    rtm_scope=RT_SCOPE_UNIVERSE
+    rtm_type=RTN_UNICAST
+    rtm_flags=0
+Netlink Attribute:
+    {nla_len=8, nla_type=RTA_DST}, inet_addr("10.11.12.13")
+    {nla_len=8, nla_type=RTA_NH_ID}, "\x0b\x00\x00\x00"
 ```
 
-TODO ：解説
+### nexthop group を利用 Multipath
 
-### nexthop group を利用
 
-TODO ：解説
+Next Hop Object を利用して Multipath を設置する場合は、以下３ステップを辿ります。
+
+1. `RTM_NEWNEXTHOP` メッセージを送信し nexthop を作成（２個以上）
+2. `RTM_NEWNEXTHOP` メッセージを送信し `NHA_GROUP` に "1." で作成した nexthop の ID を指定し nexthop group を作成
+3. nexthop group の ID を `RTA_NH_ID` に指定して送信
+
 
 ```
 > ip nexthop add id 1 via 172.20.105.172 dev eno1
 > ip nexthop add id 2 via 172.20.105.173 dev eno1
-> ip nexthop add id 3 group 1/2
 
 sendmsg(3, {msg_name={sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, msg_namelen=12, msg_iov=[{iov_base=[{nlmsg_len=48, nlmsg_type=RTM_NEWNEXTHOP, nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE, nlmsg_seq=1669711458, nlmsg_pid=0}, {nh_family=AF_INET, nh_scope=RT_SCOPE_UNIVERSE, nh_protocol=RTPROT_UNSPEC, nh_flags=0}, [[{nla_len=8, nla_type=NHA_ID}, 1], [{nla_len=8, nla_type=NHA_GATEWAY}, inet_addr("172.20.105.172")], [{nla_len=8, nla_type=NHA_OIF}, if_nametoindex("eno1")]]], iov_len=48}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 48
 
 sendmsg(3, {msg_name={sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, msg_namelen=12, msg_iov=[{iov_base=[{nlmsg_len=48, nlmsg_type=RTM_NEWNEXTHOP, nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE, nlmsg_seq=1669711492, nlmsg_pid=0}, {nh_family=AF_INET, nh_scope=RT_SCOPE_UNIVERSE, nh_protocol=RTPROT_UNSPEC, nh_flags=0}, [[{nla_len=8, nla_type=NHA_ID}, 2], [{nla_len=8, nla_type=NHA_GATEWAY}, inet_addr("172.20.105.173")], [{nla_len=8, nla_type=NHA_OIF}, if_nametoindex("eno1")]]], iov_len=48}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 48
 
+Netlink Message Type: RTM_NEWNEXTHOP
+Next Hop Message:
+    nh_family=AF_INET,
+    nh_scope=RT_SCOPE_UNIVERSE,
+    nh_protocol=RTPROT_UNSPEC,
+    nh_flags=0
+Netlink Attribute:
+    {nla_len=8, nla_type=NHA_ID}, 1
+    {nla_len=8, nla_type=NHA_GATEWAY}, inet_addr("172.20.105.172")
+    {nla_len=8, nla_type=NHA_OIF}, if_nametoindex("eno1")
+
+Netlink Message Type: RTM_NEWNEXTHOP
+Next Hop Message:
+    nh_family=AF_INET,
+    nh_scope=RT_SCOPE_UNIVERSE,
+    nh_protocol=RTPROT_UNSPEC,
+    nh_flags=0
+Netlink Attribute:
+    {nla_len=8, nla_type=NHA_ID}, 2
+    {nla_len=8, nla_type=NHA_GATEWAY}, inet_addr("172.20.105.173")
+    {nla_len=8, nla_type=NHA_OIF}, if_nametoindex("eno1")
+
+> ip nexthop add id 3 group 1/2
+
 sendmsg(3, {msg_name={sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, msg_namelen=12, msg_iov=[{iov_base=[{nlmsg_len=52, nlmsg_type=RTM_NEWNEXTHOP, nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE, nlmsg_seq=1669711532, nlmsg_pid=0}, {nh_family=AF_UNSPEC, nh_scope=RT_SCOPE_UNIVERSE, nh_protocol=RTPROT_UNSPEC, nh_flags=0}, [[{nla_len=8, nla_type=NHA_ID}, 3], [{nla_len=20, nla_type=NHA_GROUP}, [{id=1, weight=0}, {id=2, weight=0}]]]], iov_len=52}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 52
+
+Netlink Message Type: RTM_NEWNEXTHOP
+Next Hop Message:
+    nh_family=AF_UNSPEC,
+    nh_scope=RT_SCOPE_UNIVERSE,
+    nh_protocol=RTPROT_UNSPEC,
+    nh_flags=0
+Netlink Attribute:
+    {nla_len=8, nla_type=NHA_ID}, 3
+    {nla_len=20, nla_type=NHA_GROUP}, [ {id=1, weight=0}, {id=2, weight=0} ]
+
 
 > ip route add 10.11.12.13/32 nhid 3
 
 sendmsg(3, {msg_name={sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, msg_namelen=12, msg_iov=[{iov_base=[{nlmsg_len=44, nlmsg_type=RTM_NEWROUTE, nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE, nlmsg_seq=1669711569, nlmsg_pid=0}, {rtm_family=AF_INET, rtm_dst_len=32, rtm_src_len=0, rtm_tos=0, rtm_table=RT_TABLE_MAIN, rtm_protocol=RTPROT_BOOT, rtm_scope=RT_SCOPE_UNIVERSE, rtm_type=RTN_UNICAST, rtm_flags=0}, [[{nla_len=8, nla_type=RTA_DST}, inet_addr("10.11.12.13")], [{nla_len=8, nla_type=RTA_NH_ID}, "\x03\x00\x00\x00"]]], iov_len=44}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 44
+
+Netlink Message Type: RTM_NEWROUTE
+RT Message:
+    rtm_family=AF_INET
+    rtm_dst_len=32
+    rtm_src_len=0
+    rtm_tos=0
+    rtm_table=RT_TABLE_MAIN
+    rtm_protocol=RTPROT_BOOT
+    rtm_scope=RT_SCOPE_UNIVERSE
+    rtm_type=RTN_UNICAST
+    rtm_flags=0
+Netlink Attribute:
+    {nla_len=8, nla_type=RTA_DST}, inet_addr("10.11.12.13")
+    {nla_len=8, nla_type=RTA_NH_ID}, "\x03\x00\x00\x00"
 ```
 
-TODO ：解説
+## route add ipv6
 
-## memo: Linux Kernel Source Code snippet
+IPv6 を設定する際も同様となります。
+なお、 `rtm_family=AF_INET6` の場合は `RTA_DST` の長さが `AF_INET` の場合と異なる事に注意してください。
 
-> linux-5.2/include/net/ip_fib.h
-```c
-struct fib_info {
-    struct hlist_node   fib_hash;
-    struct hlist_node   fib_lhash;
-    struct net      *fib_net;
-    int         fib_treeref;
-    refcount_t      fib_clntref;
-    unsigned int        fib_flags;
-    unsigned char       fib_dead;
-    unsigned char       fib_protocol;
-    unsigned char       fib_scope;
-    unsigned char       fib_type;
-    __be32          fib_prefsrc;
-    u32         fib_tb_id;
-    u32         fib_priority;
-    struct dst_metrics  *fib_metrics;
-#define fib_mtu fib_metrics->metrics[RTAX_MTU-1]
-#define fib_window fib_metrics->metrics[RTAX_WINDOW-1]
-#define fib_rtt fib_metrics->metrics[RTAX_RTT-1]
-#define fib_advmss fib_metrics->metrics[RTAX_ADVMSS-1]
-    int         fib_nhs;
-    bool            fib_nh_is_v6;
-    struct rcu_head     rcu;
-    struct fib_nh       fib_nh[0];
-#define fib_dev     fib_nh[0].fib_nh_dev
-};
+```
+> ip route add 2001:db8:ffff::/64 dev veth103
+
+sendmsg(3, {msg_name={sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, msg_namelen=12, msg_iov=[{iov_base={{len=56, type=RTM_NEWROUTE, flags=NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE, seq=1669814439, pid=0}, {rtm_family=AF_INET6, rtm_dst_len=64, rtm_src_len=0, rtm_tos=0, rtm_table=RT_TABLE_MAIN, rtm_protocol=RTPROT_BOOT, rtm_scope=RT_SCOPE_UNIVERSE, rtm_type=RTN_UNICAST, rtm_flags=0}, [{{nla_len=20, nla_type=RTA_DST}, 2001:db8:ffff::}, {{nla_len=8, nla_type=RTA_OIF}, if_nametoindex("veth103")}]}, iov_len=56}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 56
+
+Netlink Message Type: RTM_NEWROUTE
+RT Message:
+    rtm_family=AF_INET6
+    rtm_dst_len=64
+    rtm_src_len=0
+    rtm_tos=0
+    rtm_table=RT_TABLE_MAIN
+    rtm_protocol=RTPROT_BOOT
+    rtm_scope=RT_SCOPE_UNIVERSE
+    rtm_type=RTN_UNICAST
+    rtm_flags=0
+Netlink Attribute:
+    {nla_len=20, nla_type=RTA_DST}, 2001:db8:ffff::
+    {nla_len=8, nla_type=RTA_OIF}, if_nametoindex("veth103")
 ```
 
-> linux-5.3/include/net/ip_fib.h
-```c
-struct fib_info {
-    struct hlist_node   fib_hash;
-    struct hlist_node   fib_lhash;
-    struct list_head    nh_list;
-    struct net      *fib_net;
-    int         fib_treeref;
-    refcount_t      fib_clntref;
-    unsigned int        fib_flags;
-    unsigned char       fib_dead;
-    unsigned char       fib_protocol;
-    unsigned char       fib_scope;
-    unsigned char       fib_type;
-    __be32          fib_prefsrc;
-    u32         fib_tb_id;
-    u32         fib_priority;
-    struct dst_metrics  *fib_metrics;
-#define fib_mtu fib_metrics->metrics[RTAX_MTU-1]
-#define fib_window fib_metrics->metrics[RTAX_WINDOW-1]
-#define fib_rtt fib_metrics->metrics[RTAX_RTT-1]
-#define fib_advmss fib_metrics->metrics[RTAX_ADVMSS-1]
-    int         fib_nhs;
-    bool            fib_nh_is_v6;
-    bool            nh_updated;
-    struct nexthop      *nh;
-    struct rcu_head     rcu;
-    struct fib_nh       fib_nh[0];
-};
-```
-
-> linux-5.3/include/net/nexthop.h
-```c
-struct nexthop {
-    struct rb_node      rb_node;    /* entry on netns rbtree */
-    struct list_head    fi_list;    /* v4 entries using nh */
-    struct list_head    f6i_list;   /* v6 entries using nh */
-    struct list_head    grp_list;   /* nh group entries using this nh */
-    struct net      *net;
-
-    u32         id;
-
-    u8          protocol;   /* app managing this nh */
-    u8          nh_flags;
-    bool            is_group;
-
-    refcount_t      refcnt;
-    struct rcu_head     rcu;
-
-    union {
-        struct nh_info  __rcu *nh_info;
-        struct nh_group __rcu *nh_grp;
-    };
-};
-
-struct nh_info {
-    struct hlist_node   dev_hash;    /* entry on netns devhash */
-    struct nexthop      *nh_parent;
-
-    u8          family;
-    bool            reject_nh;
-
-    union {
-        struct fib_nh_common    fib_nhc;
-        struct fib_nh       fib_nh;
-        struct fib6_nh      fib6_nh;
-    };
-};
-```
-
-> linux-5.3/include/net/ip_fib.h
-```c
-struct fib_nh_common {
-    struct net_device   *nhc_dev;
-    int         nhc_oif;
-    unsigned char       nhc_scope;
-    u8          nhc_family;
-    u8          nhc_gw_family;
-    unsigned char       nhc_flags;
-    struct lwtunnel_state   *nhc_lwtstate;
-
-    union {
-        __be32          ipv4;
-        struct in6_addr ipv6;
-    } nhc_gw;
-
-    int         nhc_weight;
-    atomic_t        nhc_upper_bound;
-
-    /* v4 specific, but allows fib6_nh with v4 routes */
-    struct rtable __rcu * __percpu *nhc_pcpu_rth_output;
-    struct rtable __rcu     *nhc_rth_input;
-    struct fnhe_hash_bucket __rcu *nhc_exceptions;
-};
-```
 
 ## reference
 

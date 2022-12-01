@@ -47,6 +47,9 @@ RtAttr | Len:8, Type:RTA_OIF, Value:[5 0 0 0]
 
 `RTA_MULTIPATH` will be included when `RTA_NH_ID` is pointing to Next Hop Group. (nexthop id 3 in below example)
 
+Note that you do NOT need to set `RTA_MULTIPATH` in sendmsg to configure route using nexthop group.
+But when the route update is annouced, it will include `RTA_MULTIPATH`. (For backword compatibility?)
+
 ```
 >> below messages will not show up even if you Subscribe to `NETLINK_ROUTE`.
 > ip nexthop add id 1 via 172.20.105.172 dev eno1
@@ -99,6 +102,8 @@ RtAttr | Len:36, Type:RTA_MULTIPATH
   | RTA: Len:8, Type:RTA_GATEWAY, IPv4:172.20.105.172
   | rtnexthop: Len:16, Flags:0, Hops:0, Ifindex:5
   | RTA: Len:8, Type:RTA_GATEWAY, IPv4:172.20.105.173
+
+sendmsg(3, {msg_name={sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, msg_namelen=12, msg_iov=[{iov_base=[{nlmsg_len=52, nlmsg_type=RTM_NEWNEXTHOP, nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE, nlmsg_seq=1669711532, nlmsg_pid=0}, {nh_family=AF_UNSPEC, nh_scope=RT_SCOPE_UNIVERSE, nh_protocol=RTPROT_UNSPEC, nh_flags=0}, [[{nla_len=8, nla_type=NHA_ID}, 3], [{nla_len=20, nla_type=NHA_GROUP}, [{id=1, weight=0}, {id=2, weight=0}]]]], iov_len=52}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 52
 ```
 
 ## IPv4 ROUTE (no next hop object)
@@ -146,6 +151,62 @@ RtAttr | Len:8, Type:RTA_DST, Value:[10 11 11 99]
 RtAttr | Len:8, Type:RTA_GATEWAY, Value:[172 20 104 1]
 RtAttr | Len:8, Type:RTA_OIF, Value:[5 0 0 0]
 ```
+
+## IPv4 MULTIPATH ROUTE (no next hop object)
+
+
+```
+> $ ip route add 10.11.11.11/32 \
+nexthop via 172.20.105.174 dev eno1 \
+nexthop via 172.20.105.175 dev eno1
+
+nsdevnotes/examples/gonlsub$ go run gonlsub.go
+Starting gonlsub.go
+-----------------------------------
+NlMsghdr | Len:80, Type:RTM_NEWROUTE, Flags:600, Seq:1669864316, Pid:224911
+rtmsg: {2 32 0 0 254 3 0 1 0}
+rtmsg: RtMsg |
+  Family:   AF_INET (2)
+  Dst_len:  32
+  Src_len:  0
+  Tos:      0
+  Table:    254
+  Protocol: RTPROT_BOOT (3)
+  Scope:    RT_SCOPE_UNIVERSE (0)
+  Type:     RTN_UNICAST (1)
+  Flags:    0
+RtAttr | Len:8, Type:RTA_TABLE, Value:254
+RtAttr | Len:8, Type:RTA_DST, IPv4:10.11.11.11
+RtAttr | Len:36, Type:RTA_MULTIPATH
+  | rtnexthop: Len:16, Flags:0, Hops:0, Ifindex:5
+  | RTA: Len:8, Type:RTA_GATEWAY, IPv4:172.20.105.174
+  | rtnexthop: Len:16, Flags:0, Hops:0, Ifindex:5
+  | RTA: Len:8, Type:RTA_GATEWAY, IPv4:172.20.105.175
+
+# strace ip route add 10.11.11.11/32 nexthop via 172.20.105.174 dev eno1 nexthop via 172.20.105.175 dev eno1
+
+sendmsg(3, {msg_name={sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, msg_namelen=12, msg_iov=[{iov_base=[{nlmsg_len=72, nlmsg_type=RTM_NEWROUTE, nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE, nlmsg_seq=1669864316, nlmsg_pid=0}, {rtm_family=AF_INET, rtm_dst_len=32, rtm_src_len=0, rtm_tos=0, rtm_table=RT_TABLE_MAIN, rtm_protocol=RTPROT_BOOT, rtm_scope=RT_SCOPE_UNIVERSE, rtm_type=RTN_UNICAST, rtm_flags=0}, [[{nla_len=8, nla_type=RTA_DST}, inet_addr("10.11.11.11")], [{nla_len=36, nla_type=RTA_MULTIPATH}, [[{rtnh_len=16, rtnh_flags=0, rtnh_hops=0, rtnh_ifindex=if_nametoindex("eno1")}, [{nla_len=8, nla_type=RTA_GATEWAY}, inet_addr("172.20.105.174")]], [{rtnh_len=16, rtnh_flags=0, rtnh_hops=0, rtnh_ifindex=if_nametoindex("eno1")}, [{nla_len=8, nla_type=RTA_GATEWAY}, inet_addr("172.20.105.175")]]]]]], iov_len=72}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 72
+
+Netlink Message Type: RTM_NEWROUTE
+RT Message:
+    rtm_family=AF_INET
+    rtm_dst_len=32
+    rtm_src_len=0
+    rtm_tos=0
+    rtm_table=RT_TABLE_MAIN
+    rtm_protocol=RTPROT_BOOT
+    rtm_scope=RT_SCOPE_UNIVERSE
+    rtm_type=RTN_UNICAST
+    rtm_flags=0
+Netlink Attribute:
+    {nla_len=8, nla_type=RTA_DST}, inet_addr("10.11.11.11")
+    {nla_len=36, nla_type=RTA_MULTIPATH}
+        {rtnh_len=16, rtnh_flags=0, rtnh_hops=0, rtnh_ifindex=if_nametoindex("eno1")}
+            {nla_len=8, nla_type=RTA_GATEWAY}, inet_addr("172.20.105.174")]
+        {rtnh_len=16, rtnh_flags=0, rtnh_hops=0, rtnh_ifindex=if_nametoindex("eno1")}
+            {nla_len=8, nla_type=RTA_GATEWAY}, inet_addr("172.20.105.175")
+```
+
 
 ## Prefix Len of RTA_DST (rtm_dst_len)
 
