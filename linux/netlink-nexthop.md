@@ -153,7 +153,7 @@ Netlink Attribute:
     {nla_len=8, nla_type=RTA_DST}, inet_addr("10.11.11.11")
     {nla_len=36, nla_type=RTA_MULTIPATH}
         {rtnh_len=16, rtnh_flags=0, rtnh_hops=0, rtnh_ifindex=if_nametoindex("eno1")}
-            {nla_len=8, nla_type=RTA_GATEWAY}, inet_addr("172.20.105.174")]
+            {nla_len=8, nla_type=RTA_GATEWAY}, inet_addr("172.20.105.174")
         {rtnh_len=16, rtnh_flags=0, rtnh_hops=0, rtnh_ifindex=if_nametoindex("eno1")}
             {nla_len=8, nla_type=RTA_GATEWAY}, inet_addr("172.20.105.175")
 ```
